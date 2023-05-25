@@ -116,7 +116,7 @@ async function checkHeader(req, res, next) {
 }
 
 async function checkHeaderChatwoot(req, res, next) {
-    if (!pool) {
+    if (!getDBRef()) {
         res.status(401).json({ status: 401, error: 'Please configure database. Learn more at https://links.google.com/err-config-database' });
         return
     }
