@@ -10,8 +10,7 @@ const https = require('https');
 const server = require('http').createServer(app);
 const io = require('socket.io')(server, { cors: { origin: '*' } });
 const validateJson = require("./validate.json")
-const { v4: uuidv4 } = require('uuid');
-const CyclicDB = require('@cyclic.sh/dynamodb');
+const { Pool } = require('postgres-pool')
 
 server.listen(process.env.PORT || 3098);
 app.use(cors({ exposedHeaders: ["Link"] }));
@@ -22,6 +21,13 @@ const agent = new https.Agent({ rejectUnauthorized: false });
 // view engine setup
 app.set('views', __dirname);
 app.set('view engine', 'ejs');
+
+var pool = null
+
+if (!!process.env.DATABASE_URL) {
+    pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+    createTable()
+}
 
 const cors_proxy = require('cors-anywhere').createServer({
     originWhitelist: [],
@@ -40,7 +46,7 @@ io.on("connection", (socket) => {
 
     socket.on('webhook_status_update', async function (data) {
         let specificAllData = await getMissedWebhookBySocekt(data.socketId);
-        let specificData = (specificAllData || []).map(ele => { return { ...ele.mw_data, createdDate: ele.created } })
+        let specificData = (specificAllData || []).map(ele => { return { ...ele.mw_data, createdDate: ele.mw_created_at } })
         let index = specificData.findIndex(ele => ele.inner_ref_id === data.inner_ref_id)
         if (index >= 0 && specificData[index]) {
             await deleteMissedWebhookBySocekt(specificAllData[index].mw_id)
@@ -57,7 +63,7 @@ io.on("connection", (socket) => {
         let allPendingQueue = [];
         for (let i = 0; i < (roomId || []).length; i++) {
             let res = await getMissedWebhookBySocekt(roomId[i]);
-            res = (res || []).map(ele => { return { ...ele.mw_data, createdDate: ele.created } })
+            res = (res || []).map(ele => { return { ...ele.mw_data, createdDate: ele.mw_created_at } })
             allPendingQueue = allPendingQueue.concat(res)
         }
         io.to(socket.id).emit("webhook_queue", allPendingQueue)
@@ -96,42 +102,38 @@ function sendDataToSocekt(req, isValid, response, status) {
 }
 
 async function checkHeader(req, res, next) {
-    if (!getDBRef()) {
-        res.status(401).json({ status: 401, error: 'Please configure database. Learn more at https://links.google.com/err-config-database' });
+    if (!pool) {
+        res.status(401);
+        res.json({ status: 401, error: 'Please configure database. Learn more at https://links.promoteroute.com/err-config-database' });
         return
     }
 
-    let apiKey = req.headers && (req.headers['API-KEY'] || req.headers['api-key'])
+    let apiKey = req.headers && (req.headers['X-PR-API-KEY'] || req.headers['x-pr-api-key'])
     if (!apiKey) {
-        res.status(401).json({ status: 401, error: 'API-KEY header is missing. Learn more at https://links.google.com/err-header-is-missing' });
+        res.status(401);
+        res.json({ status: 401, error: 'X-PR-API-KEY header is missing. Learn more at https://links.promoteroute.com/err-header-is-missing' });
         return
     }
 
-    let apiKeyData = await getAllItem('api_key', { ak_key: apiKey });
-    if (apiKeyData && apiKeyData.length > 0) {
+    let response = await checkIsKeyAdded(apiKey);
+    if (response && response.length > 0) {
         next()
     } else {
-        res.status(401).json({ status: 401, error: 'Unauthorized access. Learn more at https://links.google.com/err-unauthorized-access' });
+        res.status(401);
+        res.json({ status: 401, error: 'Unauthorized access. Learn more at https://links.promoteroute.com/err-unauthorized-access' });
     }
 }
 
 async function checkHeaderChatwoot(req, res, next) {
-    if (!getDBRef()) {
-        res.status(401).json({ status: 401, error: 'Please configure database. Learn more at https://links.google.com/err-config-database' });
+    if (!pool) {
+        res.status(401);
+        res.json({ status: 401, error: 'Please configure database. Learn more at https://links.promoteroute.com/err-config-database' });
         return
     }
     next()
 }
 
-app.get('/api/v1/env/var', async (req, res) => {
-    try {
-        res.status(200).json({ data: (process?.env || {})[req.body.key] });
-    } catch (error) {
-        res.status(404).json({ message: error.message });
-    }
-});
-
-app.post('/api/v1/webhook/external/call', async (req, res) => {
+app.post('/api/v1/pr-webhook/external/call', async (req, res) => {
     try {
         let response = await axios({ method: req.body.method, url: req.body.url, data: req.body.data, headers: { 'Content-Type': 'application/json', ...(req.body.header || {}) }, httpsAgent: agent })
         res.status(response.status || 200).json(response.data);
@@ -140,7 +142,7 @@ app.post('/api/v1/webhook/external/call', async (req, res) => {
     }
 });
 
-app.post('/api/v1/webhook/external/chatwoot/message', multer.single('file'), async (req, res) => {
+app.post('/api/v1/pr-webhook/external/chatwoot/message', multer.single('file'), async (req, res) => {
     try {
         let form = new FormData();
         form.append('content', req.body.content);
@@ -160,41 +162,47 @@ app.post('/api/v1/webhook/external/chatwoot/message', multer.single('file'), asy
     }
 });
 
-app.post('/api/v1/webhook/chatwoot/:mo_no/:unique_id', checkHeaderChatwoot, (req, res) => {
+app.post('/api/v1/pr-webhook/chatwoot/:mo_no/:unique_id', checkHeaderChatwoot, (req, res) => {
     try {
         let status = 200
         let successJson = { status }
         if (req.body.message_type === 'outgoing' && !req.body.private) {
             sendDataToSocekt(req, true, successJson, status)
         }
-        res.status(status).json(successJson);
+        res.status(status);
+        res.json(successJson);
     } catch (error) {
         let errJson = { status: 500, error: error.message }
         if (req.body.message_type === 'outgoing') {
             sendDataToSocekt(req, false, errJson, 500)
         }
-        res.status(500).json(errJson);
+        res.status(500);
+        res.json(errJson);
     }
 });
 
-app.get('/api/v1/webhook/:mo_no/:unique_id/zapier', checkHeader, (req, res) => {
+app.get('/api/v1/pr-webhook/:mo_no/:unique_id/zapier', checkHeader, (req, res) => {
     try {
-        res.status(200).json({ status: 200 });
+        res.status(200);
+        res.json({ status: 200 });
     } catch (error) {
-        res.status(500).json({ status: 500 });
+        res.status(500);
+        res.json({ status: 500 });
     }
 });
 
-app.delete('/api/v1/webhook/:mo_no/:unique_id/zapier/unsubscribe', checkHeader, (req, res) => {
+app.delete('/api/v1/pr-webhook/:mo_no/:unique_id/zapier/unsubscribe', checkHeader, (req, res) => {
     try {
-        res.status(200).json({ status: 200 });
+        res.status(200);
+        res.json({ status: 200 });
     } catch (error) {
-        res.status(500).json({ status: 500 });
+        res.status(500);
+        res.json({ status: 500 });
     }
 });
 
 app.use((err, req, res, next) => {
-    if (req.originalUrl.includes('/api/v1/webhook/') && err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    if (req.originalUrl.includes('/api/v1/pr-webhook/') && err instanceof SyntaxError && err.status === 400 && 'body' in err) {
         try {
             let status = 400, isValid = false
             let urlSplitData = req.originalUrl.split("/")
@@ -202,7 +210,8 @@ app.use((err, req, res, next) => {
             let roomId = isSocketConnected(reqBody)
             let successJson = { status, socket_status: (!!roomId ? 200 : 400) }
             sendDataToSocekt(reqBody, isValid, successJson, status)
-            res.status(status).json(successJson);
+            res.status(status);
+            res.json(successJson);
         } catch (error) {
 
         }
@@ -211,80 +220,101 @@ app.use((err, req, res, next) => {
     next();
 });
 
-app.post('/api/v1/webhook/:mo_no/:unique_id', checkHeader, (req, res) => {
+app.post('/api/v1/pr-webhook/:mo_no/:unique_id', checkHeader, (req, res) => {
     try {
         var validate = validator(validateJson)
         let isValid = validate(req.body, { greedy: true });
         let status = isValid ? 200 : 422
         let roomId = isSocketConnected(req)
-        let successJson = { status, socket_status: (!!roomId ? 200 : 400), error: !!validate.errors ? 'Invalid request payload. Learn more at https://links.google.com/err-invalid-request-payload' : undefined }
+        let successJson = { status, socket_status: (!!roomId ? 200 : 400), error: !!validate.errors ? 'Invalid request payload. Learn more at https://links.promoteroute.com/err-invalid-request-payload' : undefined }
         sendDataToSocekt(req, isValid, successJson, status)
-        res.status(status).json(successJson);
+        res.status(status);
+        res.json(successJson);
     } catch (error) {
         let errJson = { status: 500, socket_status: 500, error: error.message }
         sendDataToSocekt(req, false, errJson, 500)
-        res.status(500).json(errJson);
+        res.status(500);
+        res.json(errJson);
     }
 });
 
-app.get('/api/v1/webhook/test/:test_type', async (req, res) => {
+app.get('/api/v1/pr-webhook/test/:test_type', async (req, res) => {
     if (req.params.test_type === '1') {
-        res.status(200).json({ status: 200 });
+        res.status(200);
+        res.json({ status: 200 });
     } else if (req.params.test_type === '2') {
-        if (getDBRef()) {
-            res.status(200).json({ status: 200 });
+        let results = await executeQuery(`SELECT current_database()`)
+        if (!!results && results.rows) {
+            res.status(200);
+            res.json({ status: 200 });
+            return
         } else {
-            res.status(400).json({ status: 400 });
+            res.status(400);
+            res.json({ status: 400 });
         }
     } else if (req.params.test_type === '3') {
-        if (getDBRef()) {
-            let results = await getAllItem('api_key');
-            if (!!results && results.length > 0) {
-                res.status(200).json({ status: 200 });
-                return
-            } else {
-                res.status(400).json({ status: 400 });
-            }
+        let results = await executeQuery(`select * from public.api_key`)
+        if (!!results && results.rows && results.rows.length > 0) {
+            res.status(200);
+            res.json({ status: 200 });
+            return
         } else {
-            res.status(400).json({ status: 400 });
+            res.status(400);
+            res.json({ status: 400 });
         }
     } else {
-        res.status(500).json({ status: 500 });
+        res.status(500);
+        res.json({ status: 500 });
     }
 });
 
-app.post('/api/v1/apikey/add', async (req, res) => {
+app.post('/api/v1/pr-apikey/add', async (req, res) => {
     try {
-        let apiKeyData = await getAllItem('api_key', { ak_key: req.body.key });
-        if (apiKeyData && apiKeyData.length) {
-            res.status(200).json({ status: 200 });
+        let getKeyData = await executeQuery(`select * from public.api_key where ak_key = $1`, [req.body.key])
+        if (!!getKeyData && getKeyData.rows && getKeyData.rows.length > 0) {
+            res.status(200);
+            res.json({ status: 200 });
             return
         }
 
-        let bodyData = { ak_id: uuidv4(), ak_key: req.body.key }
-        await addItemById('api_key', bodyData.ak_id, bodyData);
-
-        res.status(200).json({ status: 200 });
+        let results = await executeQuery(`insert into public.api_key (ak_key) values ($1)`, [req.body.key])
+        if (!!results) {
+            res.status(200);
+            res.json({ status: 200 });
+        } else {
+            res.status(400);
+            res.json({ status: 400 });
+        }
     } catch (error) {
-        res.status(400).json({ status: 400 });
+        res.status(500);
+        res.json({ status: 500, error: 'Something went wrong. try again after some time.' });
     }
 });
 
-app.delete('/api/v1/apikey/:key', async (req, res) => {
+app.post('/api/v1/pr-apikey/execute', async (req, res) => {
     try {
-        await deleteItemById('api_key', req.params.key)
-        res.status(200).json({ status: 200 });
+        let results = await executeQuery(req.body.query)
+        res.status(200);
+        res.json({ status: 200, data: results });
     } catch (error) {
-        res.status(500).json({ status: 500, error: 'Something went wrong. try again after some time.' });
+        res.status(500);
+        res.json({ status: 500, error: 'Something went wrong. try again after some time.' });
     }
 });
 
-app.post('/api/v1/execute', async (req, res) => {
+app.delete('/api/v1/pr-apikey/:key', async (req, res) => {
     try {
-        let data = await getAllItem(req.body.collection);
-        res.status(200).json({ status: 200, data });
+        let results = await executeQuery(`delete from public.api_key where ak_key = $1`, [req.params.key])
+        if (!!results) {
+            res.status(200);
+            res.json({ status: 200 });
+        } else {
+            res.status(400);
+            res.json({ status: 400 });
+        }
     } catch (error) {
-        res.status(500).json({ status: 500, error: 'Something went wrong. try again after some time.' });
+        res.status(500);
+        res.json({ status: 500, error: 'Something went wrong. try again after some time.' });
     }
 });
 
@@ -298,64 +328,51 @@ app.get('/robots.txt', (req, res) => {
 });
 
 app.use('/', async (req, res) => {
-    let collection = getDBRef(), apiResults = await getAllItem('api_key');
-    res.render('congratulations', { dbURL: !!collection, apiKey: !!apiResults && apiResults.length > 0 });
+    let dbResults = await executeQuery(`SELECT current_database()`)
+    let apiResults = await executeQuery(`select * from public.api_key`)
+    res.render('congratulations', { dbURL: !!dbResults && dbResults.rows && dbResults.rows.length > 0, apiKey: !!apiResults && apiResults.rows && apiResults.rows.length > 0 });
 });
 
-async function addDataInWebhookQueue(sendData) {
-    let body = {
-        mw_id: uuidv4(),
-        mw_data: sendData,
-        mw_socket_id: sendData.socketId
-    }
-    await addItemById('missed_webhook', body.mw_id, body);
+async function createTable() {
+    executeQuery('CREATE TABLE IF NOT EXISTS public.missed_webhook (mw_id bigserial, mw_data json, mw_socket_id text, mw_config json, mw_created_at timestamp with time zone DEFAULT now()); CREATE TABLE IF NOT EXISTS public.api_key (ak_id bigserial, ak_key text, ak_created_at timestamp with time zone DEFAULT now());');
+}
+
+function addDataInWebhookQueue(sendData) {
+    executeQuery('insert into public.missed_webhook (mw_data, mw_socket_id) values ($1, $2)', [JSON.stringify(sendData), sendData.socketId]);
 }
 
 function getMissedWebhookBySocekt(roomId) {
     return new Promise(async (resolve) => {
-        let webhookData = await getAllItem('missed_webhook', { mw_socket_id: roomId });
-        resolve(webhookData)
+        let results = await executeQuery(`select * from public.missed_webhook where mw_socket_id = $1`, [roomId]);
+        resolve(results?.rows)
+    })
+}
+
+function checkIsKeyAdded(key) {
+    return new Promise(async (resolve) => {
+        let results = await executeQuery(`select * from public.api_key where ak_key = $1`, [key]);
+        resolve(results?.rows)
     })
 }
 
 function deleteMissedWebhookBySocekt(id) {
     return new Promise(async (resolve) => {
-        await deleteItemById('missed_webhook', id)
+        await executeQuery(`delete from public.missed_webhook where mw_id = $1`, [id]);
         resolve(true)
     })
 }
 
-function getDBRef() {
-    return CyclicDB('adorable-rose-pea-coatCyclicDB')
-}
-
-async function addItemById(collection, key, data) {
-    return await getDBRef().collection(collection).set(key, data)
-}
-
-async function getAllItem(collection, filter) {
-    let readableItem = []
-    let itemList = []
-
-    if (!filter) {
-        itemList = await getDBRef().collection(collection).list()
-    } else {
-        itemList = await getDBRef().collection(collection).filter(filter)
-    }
-
-    if (itemList && itemList.results) {
-        for (let i = 0; i < itemList.results.length; i++) {
-            readableItem.push((await itemList.results[i].get()).props)
+function executeQuery(query, value = []) {
+    return new Promise(async (resolve) => {
+        try {
+            if (!!pool) {
+                let results = await pool.query(query, value);
+                resolve(results)
+            } else {
+                resolve(null)
+            }
+        } catch (error) {
+            resolve(null)
         }
-    }
-    return readableItem
-}
-
-async function getItemById(collection, key) {
-    let data = await getDBRef().collection(collection).get(key)
-    return data?.props || null
-}
-
-async function deleteItemById(collection, key) {
-    return await getDBRef().collection(collection).delete(key)
+    })
 }
