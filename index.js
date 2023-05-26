@@ -95,7 +95,7 @@ function sendDataToSocekt(req, isValid, response, status) {
     let sendData = { socketId, error: !isValid, from: atob(req.params.mo_no), uniqueId: req.params.unique_id, url: `${req.protocol ? (req.protocol + "://" + req.get('host')) : ''}${req.originalUrl}`, request: req.body, response, status, inner_ref_id: uuid() }
     let roomId = isSocketConnected(req)
     if (!!roomId) {
-        io.to(roomId).emit("pr_webhook_received", sendData)
+        io.to(roomId).emit("webhook_received", sendData)
     } else {
         addDataInWebhookQueue(sendData)
     }
@@ -104,14 +104,14 @@ function sendDataToSocekt(req, isValid, response, status) {
 async function checkHeader(req, res, next) {
     if (!pool) {
         res.status(401);
-        res.json({ status: 401, error: 'Please configure database. Learn more at https://links.promoteroute.com/err-config-database' });
+        res.json({ status: 401, error: 'Please configure database. Learn more at https://links.google.com/err-config-database' });
         return
     }
 
-    let apiKey = req.headers && (req.headers['X-PR-API-KEY'] || req.headers['x-pr-api-key'])
+    let apiKey = req.headers && (req.headers['X-API-KEY'] || req.headers['x-api-key'])
     if (!apiKey) {
         res.status(401);
-        res.json({ status: 401, error: 'X-PR-API-KEY header is missing. Learn more at https://links.promoteroute.com/err-header-is-missing' });
+        res.json({ status: 401, error: 'X-API-KEY header is missing. Learn more at https://links.google.com/err-header-is-missing' });
         return
     }
 
@@ -120,20 +120,20 @@ async function checkHeader(req, res, next) {
         next()
     } else {
         res.status(401);
-        res.json({ status: 401, error: 'Unauthorized access. Learn more at https://links.promoteroute.com/err-unauthorized-access' });
+        res.json({ status: 401, error: 'Unauthorized access. Learn more at https://links.google.com/err-unauthorized-access' });
     }
 }
 
 async function checkHeaderChatwoot(req, res, next) {
     if (!pool) {
         res.status(401);
-        res.json({ status: 401, error: 'Please configure database. Learn more at https://links.promoteroute.com/err-config-database' });
+        res.json({ status: 401, error: 'Please configure database. Learn more at https://links.google.com/err-config-database' });
         return
     }
     next()
 }
 
-app.post('/api/v1/pr-webhook/external/call', async (req, res) => {
+app.post('/api/v1/webhook/external/call', async (req, res) => {
     try {
         let response = await axios({ method: req.body.method, url: req.body.url, data: req.body.data, headers: { 'Content-Type': 'application/json', ...(req.body.header || {}) }, httpsAgent: agent })
         res.status(response.status || 200).json(response.data);
@@ -142,7 +142,7 @@ app.post('/api/v1/pr-webhook/external/call', async (req, res) => {
     }
 });
 
-app.post('/api/v1/pr-webhook/external/chatwoot/message', multer.single('file'), async (req, res) => {
+app.post('/api/v1/webhook/external/chatwoot/message', multer.single('file'), async (req, res) => {
     try {
         let form = new FormData();
         form.append('content', req.body.content);
@@ -162,7 +162,7 @@ app.post('/api/v1/pr-webhook/external/chatwoot/message', multer.single('file'), 
     }
 });
 
-app.post('/api/v1/pr-webhook/chatwoot/:mo_no/:unique_id', checkHeaderChatwoot, (req, res) => {
+app.post('/api/v1/webhook/chatwoot/:mo_no/:unique_id', checkHeaderChatwoot, (req, res) => {
     try {
         let status = 200
         let successJson = { status }
@@ -181,7 +181,7 @@ app.post('/api/v1/pr-webhook/chatwoot/:mo_no/:unique_id', checkHeaderChatwoot, (
     }
 });
 
-app.get('/api/v1/pr-webhook/:mo_no/:unique_id/zapier', checkHeader, (req, res) => {
+app.get('/api/v1/webhook/:mo_no/:unique_id/zapier', checkHeader, (req, res) => {
     try {
         res.status(200);
         res.json({ status: 200 });
@@ -191,7 +191,7 @@ app.get('/api/v1/pr-webhook/:mo_no/:unique_id/zapier', checkHeader, (req, res) =
     }
 });
 
-app.delete('/api/v1/pr-webhook/:mo_no/:unique_id/zapier/unsubscribe', checkHeader, (req, res) => {
+app.delete('/api/v1/webhook/:mo_no/:unique_id/zapier/unsubscribe', checkHeader, (req, res) => {
     try {
         res.status(200);
         res.json({ status: 200 });
@@ -202,7 +202,7 @@ app.delete('/api/v1/pr-webhook/:mo_no/:unique_id/zapier/unsubscribe', checkHeade
 });
 
 app.use((err, req, res, next) => {
-    if (req.originalUrl.includes('/api/v1/pr-webhook/') && err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    if (req.originalUrl.includes('/api/v1/webhook/') && err instanceof SyntaxError && err.status === 400 && 'body' in err) {
         try {
             let status = 400, isValid = false
             let urlSplitData = req.originalUrl.split("/")
@@ -220,13 +220,13 @@ app.use((err, req, res, next) => {
     next();
 });
 
-app.post('/api/v1/pr-webhook/:mo_no/:unique_id', checkHeader, (req, res) => {
+app.post('/api/v1/webhook/:mo_no/:unique_id', checkHeader, (req, res) => {
     try {
         var validate = validator(validateJson)
         let isValid = validate(req.body, { greedy: true });
         let status = isValid ? 200 : 422
         let roomId = isSocketConnected(req)
-        let successJson = { status, socket_status: (!!roomId ? 200 : 400), error: !!validate.errors ? 'Invalid request payload. Learn more at https://links.promoteroute.com/err-invalid-request-payload' : undefined }
+        let successJson = { status, socket_status: (!!roomId ? 200 : 400), error: !!validate.errors ? 'Invalid request payload. Learn more at https://links.google.com/err-invalid-request-payload' : undefined }
         sendDataToSocekt(req, isValid, successJson, status)
         res.status(status);
         res.json(successJson);
@@ -238,7 +238,7 @@ app.post('/api/v1/pr-webhook/:mo_no/:unique_id', checkHeader, (req, res) => {
     }
 });
 
-app.get('/api/v1/pr-webhook/test/:test_type', async (req, res) => {
+app.get('/api/v1/webhook/test/:test_type', async (req, res) => {
     if (req.params.test_type === '1') {
         res.status(200);
         res.json({ status: 200 });
@@ -268,7 +268,7 @@ app.get('/api/v1/pr-webhook/test/:test_type', async (req, res) => {
     }
 });
 
-app.post('/api/v1/pr-apikey/add', async (req, res) => {
+app.post('/api/v1/apikey/add', async (req, res) => {
     try {
         let getKeyData = await executeQuery(`select * from public.api_key where ak_key = $1`, [req.body.key])
         if (!!getKeyData && getKeyData.rows && getKeyData.rows.length > 0) {
@@ -291,7 +291,7 @@ app.post('/api/v1/pr-apikey/add', async (req, res) => {
     }
 });
 
-app.post('/api/v1/pr-apikey/execute', async (req, res) => {
+app.post('/api/v1/apikey/execute', async (req, res) => {
     try {
         let results = await executeQuery(req.body.query)
         res.status(200);
@@ -302,7 +302,7 @@ app.post('/api/v1/pr-apikey/execute', async (req, res) => {
     }
 });
 
-app.delete('/api/v1/pr-apikey/:key', async (req, res) => {
+app.delete('/api/v1/apikey/:key', async (req, res) => {
     try {
         let results = await executeQuery(`delete from public.api_key where ak_key = $1`, [req.params.key])
         if (!!results) {
