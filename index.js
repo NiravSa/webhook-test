@@ -243,7 +243,7 @@ app.get('/api/v1/webhook/test/:test_type', async (req, res) => {
             return
         } else {
             let results = await executeQuery(`insert into public.api_key (ak_key) values ($1) returning *`, [uuid()])
-            res.status(200).json({ status: 200, data: results });
+            res.status(200).json({ status: 200, data: results.rows[0] });
         }
     } else {
         res.status(500).json({ status: 500 });
@@ -260,7 +260,7 @@ app.post('/api/v1/apikey/add', async (req, res) => {
 
         let results = await executeQuery(`insert into public.api_key (ak_key) values ($1) returning *`, [req.body.key])
         if (!!results) {
-            res.status(200).json({ status: 200, data: results });
+            res.status(200).json({ status: 200, data: results.rows[0] });
         } else {
             res.status(400).json({ status: 400 });
         }
