@@ -103,15 +103,13 @@ function sendDataToSocekt(req, isValid, response, status) {
 
 async function checkHeader(req, res, next) {
     if (!pool) {
-        res.status(401);
-        res.json({ status: 401, error: 'Please configure database. Learn more at https://links.google.com/err-config-database' });
+        res.status(401).json({ status: 401, error: 'Please configure database. Learn more at https://links.google.com/err-config-database' });
         return
     }
 
     let apiKey = req.headers && (req.headers['X-API-KEY'] || req.headers['x-api-key'])
     if (!apiKey) {
-        res.status(401);
-        res.json({ status: 401, error: 'X-API-KEY header is missing. Learn more at https://links.google.com/err-header-is-missing' });
+        res.status(401).json({ status: 401, error: 'X-API-KEY header is missing. Learn more at https://links.google.com/err-header-is-missing' });
         return
     }
 
@@ -119,15 +117,13 @@ async function checkHeader(req, res, next) {
     if (response && response.length > 0) {
         next()
     } else {
-        res.status(401);
-        res.json({ status: 401, error: 'Unauthorized access. Learn more at https://links.google.com/err-unauthorized-access' });
+        res.status(401).json({ status: 401, error: 'Unauthorized access. Learn more at https://links.google.com/err-unauthorized-access' });
     }
 }
 
 async function checkHeaderChatwoot(req, res, next) {
     if (!pool) {
-        res.status(401);
-        res.json({ status: 401, error: 'Please configure database. Learn more at https://links.google.com/err-config-database' });
+        res.status(401).json({ status: 401, error: 'Please configure database. Learn more at https://links.google.com/err-config-database' });
         return
     }
     next()
@@ -169,35 +165,29 @@ app.post('/api/v1/webhook/chatwoot/:mo_no/:unique_id', checkHeaderChatwoot, (req
         if (req.body.message_type === 'outgoing' && !req.body.private) {
             sendDataToSocekt(req, true, successJson, status)
         }
-        res.status(status);
-        res.json(successJson);
+        res.status(status).json(successJson);
     } catch (error) {
         let errJson = { status: 500, error: error.message }
         if (req.body.message_type === 'outgoing') {
             sendDataToSocekt(req, false, errJson, 500)
         }
-        res.status(500);
-        res.json(errJson);
+        res.status(500).json(errJson);
     }
 });
 
 app.get('/api/v1/webhook/:mo_no/:unique_id/zapier', checkHeader, (req, res) => {
     try {
-        res.status(200);
-        res.json({ status: 200 });
+        res.status(200).json({ status: 200 });
     } catch (error) {
-        res.status(500);
-        res.json({ status: 500 });
+        res.status(500).json({ status: 500 });
     }
 });
 
 app.delete('/api/v1/webhook/:mo_no/:unique_id/zapier/unsubscribe', checkHeader, (req, res) => {
     try {
-        res.status(200);
-        res.json({ status: 200 });
+        res.status(200).json({ status: 200 });
     } catch (error) {
-        res.status(500);
-        res.json({ status: 500 });
+        res.status(500).json({ status: 500 });
     }
 });
 
@@ -210,8 +200,7 @@ app.use((err, req, res, next) => {
             let roomId = isSocketConnected(reqBody)
             let successJson = { status, socket_status: (!!roomId ? 200 : 400) }
             sendDataToSocekt(reqBody, isValid, successJson, status)
-            res.status(status);
-            res.json(successJson);
+            res.status(status).json(successJson);
         } catch (error) {
 
         }
@@ -228,77 +217,64 @@ app.post('/api/v1/webhook/:mo_no/:unique_id', checkHeader, (req, res) => {
         let roomId = isSocketConnected(req)
         let successJson = { status, socket_status: (!!roomId ? 200 : 400), error: !!validate.errors ? 'Invalid request payload. Learn more at https://links.google.com/err-invalid-request-payload' : undefined }
         sendDataToSocekt(req, isValid, successJson, status)
-        res.status(status);
-        res.json(successJson);
+        res.status(status).json(successJson);
     } catch (error) {
         let errJson = { status: 500, socket_status: 500, error: error.message }
         sendDataToSocekt(req, false, errJson, 500)
-        res.status(500);
-        res.json(errJson);
+        res.status(500).json(errJson);
     }
 });
 
 app.get('/api/v1/webhook/test/:test_type', async (req, res) => {
     if (req.params.test_type === '1') {
-        res.status(200);
-        res.json({ status: 200 });
+        res.status(200).json({ status: 200 });
     } else if (req.params.test_type === '2') {
         let results = await executeQuery(`SELECT current_database()`)
         if (!!results && results.rows) {
-            res.status(200);
-            res.json({ status: 200 });
+            res.status(200).json({ status: 200 });
             return
         } else {
-            res.status(400);
-            res.json({ status: 400 });
+            res.status(400).json({ status: 400 });
         }
     } else if (req.params.test_type === '3') {
-        let results = await executeQuery(`select * from public.api_key`)
+        let results = await executeQuery(`select * from public.api_key order by 1 desc`)
         if (!!results && results.rows && results.rows.length > 0) {
-            res.status(200);
-            res.json({ status: 200 });
+            res.status(200).json({ status: 200, data: results.rows[0] });
             return
         } else {
-            res.status(400);
-            res.json({ status: 400 });
+            let results = await executeQuery(`insert into public.api_key (ak_key) values ($1) returning *`, [uuid()])
+            res.status(200).json({ status: 200, data: results });
         }
     } else {
-        res.status(500);
-        res.json({ status: 500 });
+        res.status(500).json({ status: 500 });
     }
 });
 
 app.post('/api/v1/apikey/add', async (req, res) => {
     try {
-        let getKeyData = await executeQuery(`select * from public.api_key where ak_key = $1`, [req.body.key])
+        let getKeyData = await executeQuery(`select * from public.api_key where ak_key = $1 order by 1 desc`, [req.body.key])
         if (!!getKeyData && getKeyData.rows && getKeyData.rows.length > 0) {
-            res.status(200);
-            res.json({ status: 200 });
+            res.status(200).json({ status: 200, data: getKeyData.rows[0] });
             return
         }
 
-        let results = await executeQuery(`insert into public.api_key (ak_key) values ($1)`, [req.body.key])
+        let results = await executeQuery(`insert into public.api_key (ak_key) values ($1) returning *`, [req.body.key])
         if (!!results) {
-            res.status(200);
-            res.json({ status: 200 });
+            res.status(200).json({ status: 200, data: results });
         } else {
-            res.status(400);
-            res.json({ status: 400 });
+            res.status(400).json({ status: 400 });
         }
     } catch (error) {
-        res.status(500);
-        res.json({ status: 500, error: 'Something went wrong. try again after some time.' });
+        res.status(500).json({ status: 500, error: 'Something went wrong. try again after some time.' });
     }
 });
 
 app.post('/api/v1/apikey/execute', async (req, res) => {
     try {
         let results = await executeQuery(req.body.query)
-        res.status(200);
-        res.json({ status: 200, data: results });
+        res.status(200).json({ status: 200, data: results });
     } catch (error) {
-        res.status(500);
-        res.json({ status: 500, error: 'Something went wrong. try again after some time.' });
+        res.status(500).json({ status: 500, error: 'Something went wrong. try again after some time.' });
     }
 });
 
@@ -306,15 +282,12 @@ app.delete('/api/v1/apikey/:key', async (req, res) => {
     try {
         let results = await executeQuery(`delete from public.api_key where ak_key = $1`, [req.params.key])
         if (!!results) {
-            res.status(200);
-            res.json({ status: 200 });
+            res.status(200).json({ status: 200 });
         } else {
-            res.status(400);
-            res.json({ status: 400 });
+            res.status(400).json({ status: 400 });
         }
     } catch (error) {
-        res.status(500);
-        res.json({ status: 500, error: 'Something went wrong. try again after some time.' });
+        res.status(500).json({ status: 500, error: 'Something went wrong. try again after some time.' });
     }
 });
 
@@ -330,7 +303,7 @@ app.get('/robots.txt', (req, res) => {
 app.use('/', async (req, res) => {
     let dbResults = await executeQuery(`SELECT current_database()`)
     let apiResults = await executeQuery(`select * from public.api_key`)
-    res.render('congratulations', { dbURL: !!dbResults && dbResults.rows && dbResults.rows.length > 0, apiKey: !!apiResults && apiResults.rows && apiResults.rows.length > 0 });
+    res.render('congratulations', { dbURL: !!dbResults && dbResults.rows && dbResults.rows.length > 0 });
 });
 
 async function createTable() {
