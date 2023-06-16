@@ -8,7 +8,11 @@ const FormData = require('form-data');
 const axios = require('axios');
 const https = require('https');
 const server = require('http').createServer(app);
-const io = require('socket.io')(server, { pingTimeout: 30000, cors: { origin: '*' } });
+const io = require('socket.io')(server, {
+    transports: ['websocket'],
+    allowUpgrades: false,
+    pingTimeout: 30000, cors: { origin: '*' }
+});
 const validateJson = require("./validate.json")
 const { Pool } = require('postgres-pool')
 
@@ -53,10 +57,6 @@ io.on("connection", (socket) => {
             specificData.splice(index, 1)
             io.to(data.socketId).emit("webhook_queue", specificData)
         }
-    });
-
-    socket.on('heart_beat', async function (data) {
-
     });
 
     socket.on('disconnect', function () {
