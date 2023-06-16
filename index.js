@@ -55,6 +55,10 @@ io.on("connection", (socket) => {
         }
     });
 
+    socket.on('heart_beat', async function (data) {
+
+    });
+
     socket.on('disconnect', function () {
         socket.leave(`${socket.id}`)
     });
