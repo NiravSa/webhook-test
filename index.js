@@ -8,7 +8,11 @@ const FormData = require('form-data');
 const axios = require('axios');
 const https = require('https');
 const server = require('http').createServer(app);
-const io = require('socket.io')(server, { cors: { origin: '*' } });
+const io = require('socket.io')(server, {
+    pingInterval: 24 * 60 * 60 * 1000,
+    pingTimeout: 3 * 24 * 60 * 60 * 1000,
+    cors: { origin: '*' }
+});
 const validateJson = require("./validate.json")
 const { Pool } = require('postgres-pool')
 
