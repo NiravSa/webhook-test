@@ -46,10 +46,12 @@ io.on("connection", (socket) => {
 
     socket.on('request_qr', (data) => {
         console.log("request_qr 1 ------>  ", data);
+        io.to(data).emit("request_qr_get", { data, id: 1 })
     });
 
     socket.on('request_qr', function (data) {
         console.log("request_qr 2 ------>  ", data);
+        io.to(data).emit("request_qr_get", { data, id: 2 })
     });
 
     socket.on('webhook_status_update', async function (data) {
