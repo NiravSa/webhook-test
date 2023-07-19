@@ -8,7 +8,8 @@ const FormData = require('form-data');
 const axios = require('axios');
 const https = require('https');
 const server = require('http').createServer(app);
-const io = require('socket.io')(server, { cors: { origin: '*' } });
+const { Server } = require("socket.io");
+const io = new Server(server, { cors: { origin: '*' } });
 const validateJson = require("./validate.json")
 const { Pool } = require('postgres-pool')
 
@@ -43,16 +44,6 @@ io.on("connection", (socket) => {
     });
 
     socket.on('retrive_webhook_queue', retrivePendingWebhook);
-
-    socket.on('request_qr', (data) => {
-        console.log("request_qr 1 ------>  ", data);
-        io.to(socket.id).emit("request_qr_get", { data, id: 1 })
-    });
-
-    socket.on('request_qr', function (data) {
-        console.log("request_qr 2 ------>  ", data);
-        io.to(socket.id).emit("request_qr_get", { data, id: 2 })
-    });
 
     socket.on('webhook_status_update', async function (data) {
         let specificAllData = await getMissedWebhookBySocekt(data.socketId);
